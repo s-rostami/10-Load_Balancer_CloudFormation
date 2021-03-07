@@ -1,0 +1,121 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ntier flask & node server AWS Lambda function.
+
+Resources:
+  LambdaPermissionFlaskServer:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !ImportValue FlaskServerLambdaName
+      Principal: "elasticloadbalancing.amazonaws.com"
+
+  LambdaPermissionNodeServer:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !ImportValue NodeServerLambdaName
+      Principal: "elasticloadbalancing.amazonaws.com"
+
+  LoadBalancingV2LoadBalancer:
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    Properties:
+      Name: "ntier-alb-cicd"
+      Scheme: "internet-facing"
+      Type: "application"
+      Subnets:
+        - subnet-042a18efa91c7a6aa
+        - subnet-063dd014d61e4043d
+      SecurityGroups:
+        - sg-0d383ef7c18337ee1
+      IpAddressType: "ipv4"
+
+  LoadBalancingV2Listener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancingV2LoadBalancer
+      Port: 80
+      Protocol: "HTTP"
+      DefaultActions:
+        - Order: 1
+          TargetGroupArn: !Sub "arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/helloworld/ec84a58d46cb71b3"
+          Type: "forward"
+
+  ElasticLoadBalancingV2ListenerRule1:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Properties:
+      Priority: "1"
+      ListenerArn: !Ref LoadBalancingV2Listener
+      Conditions:
+        - Field: "path-pattern"
+          Values:
+            - "/node_server*"
+      Actions:
+        - Type: "forward"
+          TargetGroupArn: !Ref LoadBalancingV2TargetGroupNodeServer
+          Order: 1
+          ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref LoadBalancingV2TargetGroupNodeServer
+                Weight: 1
+            TargetGroupStickinessConfig:
+              Enabled: false
+
+  ElasticLoadBalancingV2ListenerRule2:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Properties:
+      Priority: "2"
+      ListenerArn: !Ref LoadBalancingV2Listener
+      Conditions:
+        - Field: "path-pattern"
+          Values:
+            - "/flask_server*"
+      Actions:
+        - Type: "forward"
+          TargetGroupArn: !Ref LoadBalancingV2TargetGroupFlaskServer
+          Order: 1
+          ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref LoadBalancingV2TargetGroupFlaskServer
+                Weight: 1
+            TargetGroupStickinessConfig:
+              Enabled: false
+
+  LoadBalancingV2TargetGroupFlaskServer:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      HealthCheckIntervalSeconds: 35
+      HealthCheckPath: "/"
+      HealthCheckTimeoutSeconds: 30
+      UnhealthyThresholdCount: 2
+      TargetType: "lambda"
+      Matcher:
+        HttpCode: "200"
+      HealthyThresholdCount: 5
+      Name: "flask-server-lambda-100"
+      HealthCheckEnabled: false
+      TargetGroupAttributes:
+        - Key: "lambda.multi_value_headers.enabled"
+          Value: "false"
+      Targets:
+        - Id: !ImportValue FlaskServerLambdaName
+          AvailabilityZone: "all"
+
+  LoadBalancingV2TargetGroupNodeServer:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      HealthCheckIntervalSeconds: 35
+      HealthCheckPath: "/"
+      HealthCheckTimeoutSeconds: 30
+      UnhealthyThresholdCount: 2
+      TargetType: "lambda"
+      Matcher:
+        HttpCode: "200"
+      HealthyThresholdCount: 5
+      Name: "node-server-lambda-100"
+      HealthCheckEnabled: false
+      TargetGroupAttributes:
+        - Key: "lambda.multi_value_headers.enabled"
+          Value: "false"
+      Targets:
+        - Id: !ImportValue NodeServerLambdaName
+          AvailabilityZone: "all"
